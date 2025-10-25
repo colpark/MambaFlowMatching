@@ -14,11 +14,12 @@ import os
 import argparse
 from datetime import datetime
 
-# Add parent directory to path
+# Add repository root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(script_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
+v1_dir = os.path.dirname(script_dir)  # v1 or v2
+    repo_root = os.path.dirname(v1_dir)   # MambaFlowMatching
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
 
 import torch
 import torch.nn.functional as F

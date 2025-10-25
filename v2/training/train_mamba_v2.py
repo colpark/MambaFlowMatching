@@ -14,11 +14,12 @@ Expected improvements:
 import sys
 import os
 
-# Add parent directory to path
+# Add repository root to path
 script_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.dirname(script_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
+v2_dir = os.path.dirname(script_dir)  # v2/
+repo_root = os.path.dirname(v2_dir)   # MambaFlowMatching/
+if repo_root not in sys.path:
+    sys.path.insert(0, repo_root)
 
 import torch
 import torch.nn as nn
@@ -34,7 +35,8 @@ from core.neural_fields.perceiver import FourierFeatures
 from core.sparse.cifar10_sparse import SparseCIFAR10Dataset
 from core.sparse.metrics import MetricsTracker
 
-# Import original components
+# Import original components from V1
+sys.path.insert(0, os.path.join(repo_root, 'v1', 'training'))
 from train_mamba_standalone import (
     SSMBlockFast, MambaBlock, SinusoidalTimeEmbedding,
     conditional_flow, target_velocity, heun_sample, sde_sample, ddim_sample
