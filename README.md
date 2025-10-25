@@ -8,7 +8,7 @@ State space models (MAMBA) combined with flow matching for high-quality image ge
 - **Flow Matching**: Continuous normalizing flows for high-quality generation
 - **Sparse Training**: Learn from only 20% of pixels with deterministic masking
 - **Zero-Shot Super-Resolution**: Generate at 64×, 96×, 128×, 256× without training at those resolutions
-- **Three Architectures**: V1 (baseline), V2 (bidirectional + perceiver), V3 (Morton curves)
+- **Four Architectures**: V1 (MAMBA baseline), V2 (bidirectional + perceiver), V3 (Morton curves), V4 (Transformer comparison)
 
 ## 📊 Results
 
@@ -35,6 +35,16 @@ State space models (MAMBA) combined with flow matching for high-quality image ge
   - Reduced artifacts from spatially-aware processing
   - +1-2 dB PSNR improvement
 - **Trade-off**: Zero additional cost!
+
+### V4 (Comparison - Transformer)
+- **Standard Transformer encoder** instead of MAMBA
+- **Multi-head self-attention**: Global context vs sequential state
+- **Purpose**: Benchmark MAMBA's linear O(N) vs Transformer's quadratic O(N²)
+- **Expected**:
+  - 10-20x slower training than V1
+  - Tests if global attention helps sparse neural fields
+  - Fair comparison with same depth and dimension
+- **Trade-off**: Much higher computational cost
 
 ## 🚀 Quick Start
 
@@ -67,6 +77,12 @@ cd v2/training
 ```bash
 cd v3/training
 ./run_mamba_v3_training.sh
+```
+
+**V4 (Transformer Comparison):**
+```bash
+cd v4/training
+./run_transformer_v4_training.sh
 ```
 
 ### Evaluation
@@ -120,10 +136,17 @@ MambaFlowMatching/
 │   │   └── run_mamba_v3_training.sh
 │   └── evaluation/                # Evaluation scripts (TBD)
 │
+├── v4/                            # V4 Architecture (Transformer)
+│   ├── training/                  # Training scripts
+│   │   ├── train_transformer_v4.py
+│   │   └── run_transformer_v4_training.sh
+│   └── evaluation/                # Evaluation scripts (TBD)
+│
 ├── docs/                          # Documentation
 │   ├── README.md                  # Original documentation
 │   ├── README_V2.md              # V2 architecture details
 │   ├── README_V3.md              # V3 Morton curves guide
+│   ├── README_V4.md              # V4 Transformer comparison guide
 │   ├── README_SUPERRES.md        # Super-resolution guide
 │   ├── README_SDE.md             # SDE sampling guide
 │   ├── QUICKSTART_EVAL.md        # Quick evaluation guide
@@ -179,18 +202,36 @@ Input Coordinates → Fourier Features → Morton Reorder → MAMBA (6 layers) �
 2. **Zero Extra Cost**: Same computational complexity as V1
 3. **Clean Improvement**: Only sequence ordering changes, architecture unchanged
 
+### V4 Architecture
+```
+Input Coordinates → Fourier Features → Positional Encoding → Transformer (6 layers) → Cross-Attention → Decoder → Output
+```
+
+- **Transformer**: 6 layers with multi-head self-attention
+- **Positional Encoding**: Sinusoidal position embeddings
+- **d_model**: 512 (same as V1)
+- **Parameters**: ~15M (similar to V1)
+- **Complexity**: O(N²) quadratic attention
+
+**Key V4 Purpose:**
+1. **Benchmark MAMBA**: Compare linear vs quadratic complexity in practice
+2. **Global vs Sequential**: Test if full attention helps sparse neural fields
+3. **Fair Comparison**: Same depth and dimension as V1
+4. **Research Baseline**: Standard architecture for comparison
+
 ### Architecture Comparison
 
-| Feature | V1 | V2 | V3 |
-|---------|----|----|-----|
-| **MAMBA Layers** | 6 unidirectional | 8 bidirectional | 6 unidirectional |
-| **Attention** | 1 cross-attn | Perceiver + self-attn | 1 cross-attn |
-| **Ordering** | Row-major | Row-major | Morton curve |
-| **d_model** | 512 | 256 | 512 |
-| **Parameters** | 15M | 7M | 15M |
-| **Compute Cost** | 1.0x | 1.7x | 1.0x |
-| **Spatial Locality** | Poor | N/A | Good |
-| **Philosophy** | Baseline | Architectural | Ordering |
+| Feature | V1 | V2 | V3 | V4 |
+|---------|----|----|-----|----|
+| **Encoder** | MAMBA | Bidirectional MAMBA | MAMBA | Transformer |
+| **Attention** | 1 cross-attn | Perceiver + self-attn | 1 cross-attn | Self + Cross |
+| **Ordering** | Row-major | Row-major | Morton curve | Row-major |
+| **Complexity** | O(N) | O(N) | O(N) | O(N²) |
+| **d_model** | 512 | 256 | 512 | 512 |
+| **Layers** | 6 | 8 | 6 | 6 |
+| **Parameters** | 15M | 7M | 15M | 15M |
+| **Compute Cost** | 1.0x | 1.7x | 1.0x | 10-20x |
+| **Philosophy** | Baseline | Architectural | Ordering | Comparison |
 
 ## 📊 Training Configuration
 
@@ -214,6 +255,27 @@ lr=1e-4
 epochs=1000
 perceiver_iterations=2
 perceiver_heads=8
+```
+
+**V3:**
+```bash
+d_model=512          # Same as V1
+num_layers=6         # Same as V1
+batch_size=64
+lr=1e-4
+epochs=1000
+morton_ordering=True # NEW: Enabled by default
+```
+
+**V4:**
+```bash
+d_model=512              # Same as V1
+num_layers=6             # Same as V1
+num_heads=8              # Multi-head attention
+dim_feedforward=2048     # FFN dimension
+batch_size=64
+lr=1e-4
+epochs=1000
 ```
 
 ### Dataset
@@ -291,6 +353,8 @@ kill $(cat training_v2.pid)
 See the `docs/` directory for detailed documentation:
 
 - **README_V2.md**: Comprehensive V2 architecture guide with design decisions
+- **README_V3.md**: V3 Morton curves implementation and spatial locality
+- **README_V4.md**: V4 Transformer comparison and complexity analysis
 - **README_SUPERRES.md**: Super-resolution evaluation guide
 - **README_SDE.md**: SDE and DDIM sampling methods
 - **QUICKSTART_EVAL.md**: Quick evaluation reference
@@ -312,8 +376,13 @@ NUM_WORKERS=2 D_MODEL=256 ./run_mamba_training.sh
 ```
 
 ### Noisy Results with V1
-- This is expected! Use V2 architecture for cleaner results
-- V2 addresses speckle artifacts through bidirectional processing and query self-attention
+- This is expected! Try V3 (Morton curves) for better spatial coherence with zero extra cost
+- Or use V2 architecture for cleaner results through bidirectional processing
+
+### V4 Training Too Slow
+- V4 is 10-20x slower than V1 due to quadratic O(N²) attention
+- This is expected and by design for comparison purposes
+- Reduce batch size or use V1/V3 for faster training
 
 ## 🤝 Contributing
 
@@ -326,9 +395,11 @@ MIT License - see LICENSE file for details.
 ## 🙏 Acknowledgments
 
 - **MAMBA**: Gu & Dao (2023) - Mamba: Linear-Time Sequence Modeling
+- **Transformer**: Vaswani et al. (2017) - Attention Is All You Need
 - **Flow Matching**: Lipman et al. (2023) - Flow Matching for Generative Modeling
 - **Perceiver**: Jaegle et al. (2021) - Perceiver: General Perception with Iterative Attention
 - **Neural Fields**: Tancik et al. (2020) - Fourier Features Let Networks Learn High Frequency Functions
+- **Morton Curves**: Morton, G.M. (1966) - A Computer Oriented Geodetic Data Base
 
 ## 📞 Contact
 
