@@ -8,22 +8,33 @@ State space models (MAMBA) combined with flow matching for high-quality image ge
 - **Flow Matching**: Continuous normalizing flows for high-quality generation
 - **Sparse Training**: Learn from only 20% of pixels with deterministic masking
 - **Zero-Shot Super-Resolution**: Generate at 64×, 96×, 128×, 256× without training at those resolutions
-- **Two Architectures**: V1 (baseline) and V2 (improved with bidirectional processing)
+- **Three Architectures**: V1 (baseline), V2 (bidirectional + perceiver), V3 (Morton curves)
 
 ## 📊 Results
 
 ### V1 (Baseline)
 - Unidirectional MAMBA with 6 layers
 - Single cross-attention layer
+- Row-major sequence ordering
 - PSNR: ~28 dB, SSIM: ~0.85
 
-### V2 (Improved)
+### V2 (Complex - Bidirectional + Perceiver)
 - **Bidirectional MAMBA**: 4 forward + 4 backward = 8 layers
 - **Lightweight Perceiver**: Query self-attention for spatial coherence
 - **Expected improvements**:
   - 70-80% reduction in background speckles
   - +3-5 dB PSNR improvement
   - Smoother, more coherent spatial fields
+- **Trade-off**: +71% computational cost
+
+### V3 (Clean - Morton Curves)
+- **Same architecture as V1** (6 layers, same parameters)
+- **Morton (Z-order) curve**: Better spatial locality in sequences
+- **Expected improvements**:
+  - Better spatial coherence
+  - Reduced artifacts from spatially-aware processing
+  - +1-2 dB PSNR improvement
+- **Trade-off**: Zero additional cost!
 
 ## 🚀 Quick Start
 
@@ -46,10 +57,16 @@ cd v1/training
 ./run_mamba_training.sh
 ```
 
-**V2 (Improved):**
+**V2 (Bidirectional + Perceiver):**
 ```bash
 cd v2/training
 ./run_mamba_v2_training.sh
+```
+
+**V3 (Morton Curves - Recommended):**
+```bash
+cd v3/training
+./run_mamba_v3_training.sh
 ```
 
 ### Evaluation
@@ -90,16 +107,23 @@ MambaFlowMatching/
 │       ├── eval_sde_multiscale.py
 │       └── eval_sde.sh
 │
-├── v2/                            # V2 Architecture (Improved)
+├── v2/                            # V2 Architecture (Bidirectional)
 │   ├── training/                  # Training scripts
 │   │   ├── train_mamba_v2.py
 │   │   └── run_mamba_v2_training.sh
 │   └── evaluation/                # Evaluation scripts
 │       └── eval_v1_vs_v2.py
 │
+├── v3/                            # V3 Architecture (Morton Curves)
+│   ├── training/                  # Training scripts
+│   │   ├── train_mamba_v3_morton.py
+│   │   └── run_mamba_v3_training.sh
+│   └── evaluation/                # Evaluation scripts (TBD)
+│
 ├── docs/                          # Documentation
 │   ├── README.md                  # Original documentation
 │   ├── README_V2.md              # V2 architecture details
+│   ├── README_V3.md              # V3 Morton curves guide
 │   ├── README_SUPERRES.md        # Super-resolution guide
 │   ├── README_SDE.md             # SDE sampling guide
 │   ├── QUICKSTART_EVAL.md        # Quick evaluation guide
@@ -139,6 +163,34 @@ Input Coordinates → Fourier Features → Bidirectional MAMBA (8 layers) → Li
 1. **Bidirectional Context**: Every pixel sees information from both directions
 2. **Query Self-Attention**: Neighboring query pixels communicate for spatial coherence
 3. **Iterative Refinement**: 2-iteration perceiver for coarse-to-fine processing
+
+### V3 Architecture
+```
+Input Coordinates → Fourier Features → Morton Reorder → MAMBA (6 layers) → Restore Order → Cross-Attention → Decoder → Output
+```
+
+- **MAMBA**: 6 unidirectional layers (same as V1)
+- **Morton Curves**: Z-order sequencing for better spatial locality
+- **d_model**: 512 (same as V1)
+- **Parameters**: ~15M (identical to V1)
+
+**Key V3 Improvements:**
+1. **Better Spatial Locality**: Neighbors in 2D are also neighbors in 1D sequence
+2. **Zero Extra Cost**: Same computational complexity as V1
+3. **Clean Improvement**: Only sequence ordering changes, architecture unchanged
+
+### Architecture Comparison
+
+| Feature | V1 | V2 | V3 |
+|---------|----|----|-----|
+| **MAMBA Layers** | 6 unidirectional | 8 bidirectional | 6 unidirectional |
+| **Attention** | 1 cross-attn | Perceiver + self-attn | 1 cross-attn |
+| **Ordering** | Row-major | Row-major | Morton curve |
+| **d_model** | 512 | 256 | 512 |
+| **Parameters** | 15M | 7M | 15M |
+| **Compute Cost** | 1.0x | 1.7x | 1.0x |
+| **Spatial Locality** | Poor | N/A | Good |
+| **Philosophy** | Baseline | Architectural | Ordering |
 
 ## 📊 Training Configuration
 
