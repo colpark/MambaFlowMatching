@@ -20,10 +20,10 @@ SAVE_EVERY=${SAVE_EVERY:-10}
 EVAL_EVERY=${EVAL_EVERY:-10}
 VISUALIZE_EVERY=${VISUALIZE_EVERY:-50}
 SAVE_DIR=${SAVE_DIR:-"checkpoints_transformer_v4"}
-D_MODEL=${D_MODEL:-512}  # Same as V1
+D_MODEL=${D_MODEL:-256}  # Standard dimension for all versions
 NUM_LAYERS=${NUM_LAYERS:-6}  # Same as V1
 NUM_HEADS=${NUM_HEADS:-8}  # Multi-head attention
-DIM_FEEDFORWARD=${DIM_FEEDFORWARD:-2048}  # FFN dimension
+DIM_FEEDFORWARD=${DIM_FEEDFORWARD:-1024}  # 4x expansion ratio (d_model * 4)
 NUM_WORKERS=${NUM_WORKERS:-4}
 DEVICE=${DEVICE:-"auto"}
 

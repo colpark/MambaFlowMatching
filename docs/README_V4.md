@@ -24,9 +24,9 @@ V4 replaces MAMBA state space models with standard Transformer encoder to:
 | **Complexity** | O(N) linear | O(N²) quadratic |
 | **Context** | Sequential state propagation | Global attention to all tokens |
 | **Memory** | Constant state size | Full sequence stored |
-| **d_model** | 512 | 512 (same) |
+| **d_model** | 256 | 256 (same) |
 | **Layers** | 6 | 6 (same) |
-| **Parameters** | ~15M | ~15M (similar) |
+| **Parameters** | ~4M | ~4M (similar) |
 | **Cross-Attention** | Yes | Yes (same) |
 
 ### Key Differences
@@ -171,7 +171,7 @@ class PositionalEncoding(nn.Module):
 
 ```python
 class TransformerEncoderLayer(nn.Module):
-    def __init__(self, d_model, num_heads=8, dim_feedforward=2048, dropout=0.1):
+    def __init__(self, d_model, num_heads=8, dim_feedforward=1024, dropout=0.1):
         super().__init__()
         # Multi-head self-attention
         self.self_attn = nn.MultiheadAttention(
@@ -206,8 +206,8 @@ class TransformerEncoderLayer(nn.Module):
 
 ```python
 class TransformerDiffusion(nn.Module):
-    def __init__(self, d_model=512, num_layers=6, num_heads=8,
-                 dim_feedforward=2048, dropout=0.1, ...):
+    def __init__(self, d_model=256, num_layers=6, num_heads=8,
+                 dim_feedforward=1024, dropout=0.1, ...):
         super().__init__()
 
         # Same as V1: Fourier features
@@ -267,10 +267,10 @@ class TransformerDiffusion(nn.Module):
 ### Default Parameters
 
 ```bash
-d_model=512              # Same as V1
+d_model=256              # Same as V1
 num_layers=6             # Same as V1
-num_heads=8              # Standard for 512-dim
-dim_feedforward=2048     # 4x expansion ratio
+num_heads=8              # Standard for 256-dim
+dim_feedforward=1024     # 4x expansion ratio
 batch_size=64
 lr=1e-4
 epochs=1000
@@ -298,9 +298,9 @@ checkpoints_transformer_v4/
 | **Ordering** | Row-major | Row-major | Morton | Row-major |
 | **Attention** | Cross-attn | Perceiver | Cross-attn | Self + Cross |
 | **Complexity** | O(N) | O(N) | O(N) | O(N²) |
-| **d_model** | 512 | 256 | 512 | 512 |
+| **d_model** | 256 | 256 | 256 | 256 |
 | **Layers** | 6 | 8 | 6 | 6 |
-| **Parameters** | 15M | 7M | 15M | 15M |
+| **Parameters** | 4M | 5M | 4M | 4M |
 | **Compute Cost** | 1.0x | 1.7x | 1.0x | 10-20x |
 | **Philosophy** | Baseline | Architecture | Ordering | Comparison |
 

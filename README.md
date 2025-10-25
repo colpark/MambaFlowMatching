@@ -169,8 +169,8 @@ Input Coordinates → Fourier Features → MAMBA (6 layers) → Cross-Attention 
 
 - **MAMBA**: 6 unidirectional layers (left → right)
 - **Cross-Attention**: Single layer for input-query interaction
-- **d_model**: 512 (default)
-- **Parameters**: ~15M
+- **d_model**: 256 (default)
+- **Parameters**: ~4M
 
 ### V2 Architecture
 ```
@@ -180,7 +180,7 @@ Input Coordinates → Fourier Features → Bidirectional MAMBA (8 layers) → Li
 - **Bidirectional MAMBA**: 4 forward + 4 backward = 8 layers
 - **Lightweight Perceiver**: 2 iterations with query self-attention
 - **d_model**: 256 (default)
-- **Parameters**: ~7M (53% fewer than V1)
+- **Parameters**: ~5M
 
 **Key V2 Improvements:**
 1. **Bidirectional Context**: Every pixel sees information from both directions
@@ -194,8 +194,8 @@ Input Coordinates → Fourier Features → Morton Reorder → MAMBA (6 layers) �
 
 - **MAMBA**: 6 unidirectional layers (same as V1)
 - **Morton Curves**: Z-order sequencing for better spatial locality
-- **d_model**: 512 (same as V1)
-- **Parameters**: ~15M (identical to V1)
+- **d_model**: 256 (same as V1)
+- **Parameters**: ~4M (identical to V1)
 
 **Key V3 Improvements:**
 1. **Better Spatial Locality**: Neighbors in 2D are also neighbors in 1D sequence
@@ -209,8 +209,8 @@ Input Coordinates → Fourier Features → Positional Encoding → Transformer (
 
 - **Transformer**: 6 layers with multi-head self-attention
 - **Positional Encoding**: Sinusoidal position embeddings
-- **d_model**: 512 (same as V1)
-- **Parameters**: ~15M (similar to V1)
+- **d_model**: 256 (same as V1)
+- **Parameters**: ~4M (similar to V1)
 - **Complexity**: O(N²) quadratic attention
 
 **Key V4 Purpose:**
@@ -227,9 +227,9 @@ Input Coordinates → Fourier Features → Positional Encoding → Transformer (
 | **Attention** | 1 cross-attn | Perceiver + self-attn | 1 cross-attn | Self + Cross |
 | **Ordering** | Row-major | Row-major | Morton curve | Row-major |
 | **Complexity** | O(N) | O(N) | O(N) | O(N²) |
-| **d_model** | 512 | 256 | 512 | 512 |
+| **d_model** | 256 | 256 | 256 | 256 |
 | **Layers** | 6 | 8 | 6 | 6 |
-| **Parameters** | 15M | 7M | 15M | 15M |
+| **Parameters** | 4M | 5M | 4M | 4M |
 | **Compute Cost** | 1.0x | 1.7x | 1.0x | 10-20x |
 | **Philosophy** | Baseline | Architectural | Ordering | Comparison |
 
@@ -239,7 +239,7 @@ Input Coordinates → Fourier Features → Positional Encoding → Transformer (
 
 **V1:**
 ```bash
-d_model=512
+d_model=256
 num_layers=6
 batch_size=64
 lr=1e-4
@@ -259,7 +259,7 @@ perceiver_heads=8
 
 **V3:**
 ```bash
-d_model=512          # Same as V1
+d_model=256          # Same as V1
 num_layers=6         # Same as V1
 batch_size=64
 lr=1e-4
@@ -269,10 +269,10 @@ morton_ordering=True # NEW: Enabled by default
 
 **V4:**
 ```bash
-d_model=512              # Same as V1
+d_model=256              # Same as V1
 num_layers=6             # Same as V1
 num_heads=8              # Multi-head attention
-dim_feedforward=2048     # FFN dimension
+dim_feedforward=1024     # 4x expansion ratio
 batch_size=64
 lr=1e-4
 epochs=1000
