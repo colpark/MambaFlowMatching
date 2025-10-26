@@ -74,10 +74,12 @@ class GPUWorker(Thread):
         sys.stdout.flush()
 
         # Build command
+        # Note: When CUDA_VISIBLE_DEVICES is set, always use gpu_id=0
+        # because the environment only exposes one GPU
         cmd = self.base_cmd + [
             '--techniques', technique_str,
             '--version', str(version),
-            '--gpu_id', str(self.gpu_id),
+            '--gpu_id', '0',  # Always 0 when CUDA_VISIBLE_DEVICES is set
         ]
 
         # Log file
@@ -88,7 +90,7 @@ class GPUWorker(Thread):
         start_time = time.time()
 
         try:
-            # Run training
+            # Run training with CUDA_VISIBLE_DEVICES set to actual GPU
             with open(log_file, 'w') as f:
                 self.current_process = subprocess.Popen(
                     cmd,
