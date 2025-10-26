@@ -13,6 +13,7 @@ repo_root = os.path.dirname(synthetic_dir)
 if repo_root not in sys.path:
     sys.path.insert(0, repo_root)
 
+import sys
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -285,6 +286,7 @@ def train_flow_matching(
     print(f"   Test: {test_sparsity*100:.0f}% ({test_coords.shape[1]} pixels, disjoint)")
     print(f"   Resolution: {H}x{W}")
     print(f"   Epochs: {num_epochs}, Batch size: {batch_size}\n")
+    sys.stdout.flush()  # Ensure output appears in log immediately
 
     for epoch in range(num_epochs):
         np.random.shuffle(indices)
@@ -328,6 +330,7 @@ def train_flow_matching(
 
         if (epoch + 1) % 10 == 0:
             print(f"Epoch {epoch+1}/{num_epochs} | Loss: {avg_loss:.6f}")
+            sys.stdout.flush()  # Ensure progress appears in log
 
         # Save best model
         if avg_loss < best_loss:
@@ -340,6 +343,7 @@ def train_flow_matching(
             }, os.path.join(save_dir, 'best_model.pth'))
 
     print(f"\n✅ Training complete! Best loss: {best_loss:.6f}")
+    sys.stdout.flush()
 
     return losses
 
@@ -394,30 +398,42 @@ def main():
 
     args = parser.parse_args()
 
+    # Print startup message
+    print("=" * 70)
+    print("MAMBA V1 Synthetic Training - Starting")
+    print("=" * 70)
+    sys.stdout.flush()
+
     # Device
     if args.device == 'auto':
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
     else:
         device = args.device
     print(f"Using device: {device}")
+    sys.stdout.flush()
 
     # Create dataset
     print(f"\n📊 Creating dataset...")
+    sys.stdout.flush()
     dataset = SinusoidalDataset(
         resolution=args.resolution,
         num_samples=args.num_samples,
         complexity=args.complexity,
         noise_level=args.noise_level
     )
+    print(f"✅ Dataset created")
+    sys.stdout.flush()
 
     # Create model
-    print(f"🏗️  Creating model...")
+    print(f"\n🏗️  Creating model...")
+    sys.stdout.flush()
     model = BaselineMAMBAFlow(
         d_model=args.d_model,
         num_layers=args.num_layers
     )
 
     print(f"📦 Parameters: {sum(p.numel() for p in model.parameters()) / 1e6:.2f}M")
+    sys.stdout.flush()
 
     # Train
     losses = train_flow_matching(
@@ -443,7 +459,16 @@ def main():
     plt.close()
 
     print(f"💾 Saved training curve to {args.save_dir}/training_curve.png")
+    sys.stdout.flush()
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"\n❌ ERROR: Training failed with exception:")
+        print(f"{type(e).__name__}: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.exit(1)

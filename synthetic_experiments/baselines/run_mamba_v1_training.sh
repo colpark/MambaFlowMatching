@@ -93,8 +93,20 @@ echo "📝 Output will be logged to: ${LOG_FILE}"
 echo "💡 To monitor progress: tail -f ${LOG_FILE}"
 echo ""
 
-# Run in background with nohup
-nohup python3 "${SCRIPT_DIR}/train_mamba_v1.py" \
+# First, test if the script can be imported (quick error check)
+echo "🔍 Checking Python script..."
+python3 -c "import sys; sys.path.insert(0, '${SCRIPT_DIR}'); import train_mamba_v1" 2>&1 | head -5
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "❌ Python script has import errors. Full error:"
+    python3 -c "import sys; sys.path.insert(0, '${SCRIPT_DIR}'); import train_mamba_v1" 2>&1
+    exit 1
+fi
+echo "✅ Python imports OK"
+echo ""
+
+# Run in background with nohup (-u for unbuffered output)
+nohup python3 -u "${SCRIPT_DIR}/train_mamba_v1.py" \
     --complexity "${COMPLEXITY}" \
     --resolution ${RESOLUTION} \
     --num_samples ${NUM_SAMPLES} \
@@ -123,11 +135,18 @@ echo "  Check status: ps -p ${TRAINING_PID}"
 echo ""
 
 # Wait a moment and check if process is still running
-sleep 2
+echo "⏳ Checking startup (waiting 3 seconds)..."
+sleep 3
 if ! ps -p ${TRAINING_PID} > /dev/null 2>&1; then
-    echo "❌ Training process failed to start. Check log file:"
-    echo "   ${LOG_FILE}"
-    tail -20 "${LOG_FILE}"
+    echo ""
+    echo "❌ Training process failed to start or crashed immediately."
+    echo ""
+    echo "📋 Last 30 lines of log file:"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    tail -30 "${LOG_FILE}"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Full log at: ${LOG_FILE}"
     exit 1
 fi
 
