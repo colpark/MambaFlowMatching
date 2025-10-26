@@ -167,13 +167,14 @@ class BaselineMAMBAFlow(nn.Module):
         proj = coords @ self.B
         return torch.cat([torch.sin(proj), torch.cos(proj)], dim=-1)
 
-    def forward(self, sparse_coords, sparse_values, query_coords, t):
+    def forward(self, sparse_coords, sparse_values, query_coords, t, query_values=None):
         """
         Args:
             sparse_coords: (B, N_sparse, 2) observed coordinates
             sparse_values: (B, N_sparse, 1) observed values
             query_coords: (B, N_query, 2) query coordinates
             t: (B,) time in [0, 1]
+            query_values: (B, N_query, 1) optional noisy query values (for training)
 
         Returns:
             predicted_values: (B, N_query, 1)
@@ -189,13 +190,13 @@ class BaselineMAMBAFlow(nn.Module):
             torch.cat([sparse_feats, sparse_values], dim=-1)
         )  # (B, N_sparse, D)
 
-        # For flow matching, add noise to query values
-        # At t=0: pure noise, at t=1: clean values
-        noise = torch.randn(B, query_coords.shape[1], 1, device=query_coords.device)
-        noisy_values = noise  # In flow matching, we start from noise
+        # For flow matching, use provided query_values or generate noise
+        if query_values is None:
+            # Sampling mode: start from pure noise
+            query_values = torch.randn(B, query_coords.shape[1], 1, device=query_coords.device)
 
         query_tokens = self.query_proj(
-            torch.cat([query_feats, noisy_values], dim=-1)
+            torch.cat([query_feats, query_values], dim=-1)
         )  # (B, N_query, D)
 
         # Time conditioning
@@ -247,6 +248,65 @@ def conditional_flow(x0, x1, t):
     return z_t, v_t
 
 
+@torch.no_grad()
+def visualize_reconstruction(model, train_coords, train_values, full_data, H, W, device, epoch, save_dir):
+    """Visualize reconstruction on first 4 samples"""
+    model.eval()
+
+    # Create query coordinates for full field
+    y_grid, x_grid = torch.meshgrid(
+        torch.linspace(-1, 1, H),
+        torch.linspace(-1, 1, W),
+        indexing='ij'
+    )
+    query_coords = torch.stack([x_grid.flatten(), y_grid.flatten()], dim=-1).unsqueeze(0)
+
+    fig, axes = plt.subplots(4, 3, figsize=(12, 12))
+
+    for idx in range(min(4, len(full_data))):
+        # Get sample
+        train_coords_sample = train_coords[idx:idx+1].to(device)
+        train_values_sample = train_values[idx:idx+1].to(device)
+        query_coords_sample = query_coords.to(device)
+        target = full_data[idx:idx+1].to(device)
+
+        # Sample reconstruction
+        pred = sample_heun(model, train_coords_sample, train_values_sample,
+                          query_coords_sample, num_steps=50, device=device)
+        pred = pred.reshape(1, 1, H, W).cpu()
+        target = target.cpu()
+
+        # Sparse observations for visualization
+        train_coords_vis = train_coords_sample[0].cpu()
+        train_values_vis = train_values_sample[0].cpu()
+
+        # Plot: Ground Truth | Reconstruction | Error
+        axes[idx, 0].imshow(target[0, 0], cmap='viridis', vmin=0, vmax=1)
+        axes[idx, 0].set_title(f'Sample {idx+1}: Ground Truth')
+        axes[idx, 0].axis('off')
+
+        axes[idx, 1].imshow(pred[0, 0], cmap='viridis', vmin=0, vmax=1)
+        # Overlay sparse observations
+        coords_pixel = ((train_coords_vis + 1) / 2 * (W - 1)).numpy()
+        axes[idx, 1].scatter(coords_pixel[:, 0], coords_pixel[:, 1],
+                            c='red', s=5, alpha=0.5, marker='x')
+        axes[idx, 1].set_title(f'Reconstruction (5% obs)')
+        axes[idx, 1].axis('off')
+
+        error = torch.abs(pred - target)
+        im = axes[idx, 2].imshow(error[0, 0], cmap='hot', vmin=0, vmax=0.3)
+        axes[idx, 2].set_title(f'Error (MSE: {error.mean():.4f})')
+        axes[idx, 2].axis('off')
+        plt.colorbar(im, ax=axes[idx, 2], fraction=0.046)
+
+    plt.suptitle(f'Epoch {epoch} Reconstruction', fontsize=16)
+    plt.tight_layout()
+    plt.savefig(os.path.join(save_dir, f'reconstruction_epoch_{epoch:04d}.png'), dpi=100)
+    plt.close()
+
+    model.train()
+
+
 def train_flow_matching(
     model,
     dataset,
@@ -256,11 +316,14 @@ def train_flow_matching(
     train_sparsity=0.05,
     test_sparsity=0.05,
     device='cpu',
-    save_dir='checkpoints'
+    save_dir='checkpoints',
+    visualize_every=50
 ):
     """Train baseline MAMBA flow matching with 5%+5% disjoint sampling"""
 
     os.makedirs(save_dir, exist_ok=True)
+    vis_dir = os.path.join(save_dir, 'visualizations')
+    os.makedirs(vis_dir, exist_ok=True)
 
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
@@ -313,7 +376,8 @@ def train_flow_matching(
             z_t, v_t = conditional_flow(noise, test_values_batch, t)
 
             # Predict velocity at test coordinates given train observations
-            pred_v = model(train_coords_batch, train_values_batch, test_coords_batch, t)
+            # IMPORTANT: Pass z_t as query_values so model learns from interpolated state
+            pred_v = model(train_coords_batch, train_values_batch, test_coords_batch, t, query_values=z_t)
 
             # Loss on test set only
             loss = F.mse_loss(pred_v, v_t)
@@ -331,6 +395,15 @@ def train_flow_matching(
         if (epoch + 1) % 10 == 0:
             print(f"Epoch {epoch+1}/{num_epochs} | Loss: {avg_loss:.6f}")
             sys.stdout.flush()  # Ensure progress appears in log
+
+        # Visualize reconstruction
+        if visualize_every > 0 and (epoch + 1) % visualize_every == 0:
+            print(f"   📊 Generating visualization...")
+            sys.stdout.flush()
+            visualize_reconstruction(
+                model, train_coords, train_values, full_data,
+                H, W, device, epoch + 1, vis_dir
+            )
 
         # Save best model
         if avg_loss < best_loss:
@@ -392,6 +465,8 @@ def main():
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--visualize_every', type=int, default=50,
+                       help='Generate reconstruction visualization every N epochs (0 to disable)')
 
     parser.add_argument('--device', type=str, default='auto')
     parser.add_argument('--save_dir', type=str, default='synthetic_experiments/baselines/checkpoints')
@@ -445,7 +520,8 @@ def main():
         train_sparsity=args.train_sparsity,
         test_sparsity=args.test_sparsity,
         device=device,
-        save_dir=args.save_dir
+        save_dir=args.save_dir,
+        visualize_every=args.visualize_every
     )
 
     # Plot training curve
