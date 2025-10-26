@@ -1,0 +1,1 @@
+from .sinusoidal_generator import SinusoidalDataset, create_benchmark_datasets
