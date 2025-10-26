@@ -252,43 +252,38 @@ def train_flow_matching(
     num_epochs=100,
     batch_size=32,
     lr=1e-3,
-    sparsity=0.2,
+    train_sparsity=0.05,
+    test_sparsity=0.05,
     device='cpu',
     save_dir='checkpoints'
 ):
-    """Train baseline MAMBA flow matching"""
+    """Train baseline MAMBA flow matching with 5%+5% disjoint sampling"""
 
     os.makedirs(save_dir, exist_ok=True)
 
     model = model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
-    # Get sparse observations once
-    coords_sparse, values_sparse, full_data = dataset.get_sparse_observations(
-        sparsity=sparsity,
+    # Get train/test split (disjoint 5%+5%)
+    train_coords, train_values, test_coords, test_values, full_data = dataset.get_train_test_split(
+        train_sparsity=train_sparsity,
+        test_sparsity=test_sparsity,
         strategy='random'
     )
-
-    # Create query coordinates (full grid)
-    H, W = dataset.resolution, dataset.resolution
-    y_grid, x_grid = torch.meshgrid(
-        torch.linspace(-1, 1, H),
-        torch.linspace(-1, 1, W),
-        indexing='ij'
-    )
-    query_coords = torch.stack([x_grid.flatten(), y_grid.flatten()], dim=-1)  # (H*W, 2)
-    query_coords = query_coords.unsqueeze(0).expand(batch_size, -1, -1)  # (B, H*W, 2)
 
     # Training dataset
     num_samples = len(full_data)
     indices = list(range(num_samples))
+    H, W = dataset.resolution, dataset.resolution
 
     losses = []
     best_loss = float('inf')
 
     print(f"\n🚀 Training Baseline MAMBA Flow Matching")
     print(f"   Dataset: {dataset.complexity}, Samples: {num_samples}")
-    print(f"   Sparsity: {sparsity*100:.0f}%, Resolution: {H}x{W}")
+    print(f"   Train: {train_sparsity*100:.0f}% ({train_coords.shape[1]} pixels)")
+    print(f"   Test: {test_sparsity*100:.0f}% ({test_coords.shape[1]} pixels, disjoint)")
+    print(f"   Resolution: {H}x{W}")
     print(f"   Epochs: {num_epochs}, Batch size: {batch_size}\n")
 
     for epoch in range(num_epochs):
@@ -302,23 +297,23 @@ def train_flow_matching(
             if len(batch_indices) < batch_size:
                 continue
 
-            # Get batch
-            coords_batch = coords_sparse[batch_indices].to(device)
-            values_batch = values_sparse[batch_indices].to(device)
-            target_batch = full_data[batch_indices].to(device)  # (B, 1, H, W)
-            target_batch = target_batch.reshape(len(batch_indices), -1, 1)  # (B, H*W, 1)
+            # Get batch - train on 5%, predict different 5%
+            train_coords_batch = train_coords[batch_indices].to(device)  # (B, N_train, 2)
+            train_values_batch = train_values[batch_indices].to(device)  # (B, N_train, 1)
+            test_coords_batch = test_coords[batch_indices].to(device)    # (B, N_test, 2)
+            test_values_batch = test_values[batch_indices].to(device)    # (B, N_test, 1)
 
             # Sample timestep
             t = torch.rand(len(batch_indices), device=device)
 
-            # Flow matching
-            noise = torch.randn_like(target_batch)
-            z_t, v_t = conditional_flow(noise, target_batch, t)
+            # Flow matching on test coordinates
+            noise = torch.randn_like(test_values_batch)
+            z_t, v_t = conditional_flow(noise, test_values_batch, t)
 
-            # Predict velocity
-            pred_v = model(coords_batch, values_batch, query_coords[:len(batch_indices)].to(device), t)
+            # Predict velocity at test coordinates given train observations
+            pred_v = model(train_coords_batch, train_values_batch, test_coords_batch, t)
 
-            # Loss
+            # Loss on test set only
             loss = F.mse_loss(pred_v, v_t)
 
             optimizer.zero_grad()
@@ -383,7 +378,10 @@ def main():
     parser.add_argument('--resolution', type=int, default=32)
     parser.add_argument('--num_samples', type=int, default=500)
     parser.add_argument('--noise_level', type=float, default=0.0)
-    parser.add_argument('--sparsity', type=float, default=0.2)
+    parser.add_argument('--train_sparsity', type=float, default=0.05,
+                       help='Fraction of pixels for training observations (default: 5%)')
+    parser.add_argument('--test_sparsity', type=float, default=0.05,
+                       help='Fraction of pixels for testing (disjoint from train, default: 5%)')
 
     parser.add_argument('--d_model', type=int, default=128)
     parser.add_argument('--num_layers', type=int, default=4)
@@ -428,7 +426,8 @@ def main():
         num_epochs=args.epochs,
         batch_size=args.batch_size,
         lr=args.lr,
-        sparsity=args.sparsity,
+        train_sparsity=args.train_sparsity,
+        test_sparsity=args.test_sparsity,
         device=device,
         save_dir=args.save_dir
     )

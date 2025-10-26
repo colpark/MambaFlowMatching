@@ -98,12 +98,18 @@ python train_baseline_mamba.py \
     --complexity simple \
     --epochs 100 \
     --batch_size 32 \
-    --sparsity 0.2
+    --train_sparsity 0.05 \
+    --test_sparsity 0.05
 ```
+
+**Training Strategy**:
+- **Train**: Random 5% of pixels as input observations
+- **Test**: Different random 5% of pixels during training (disjoint from train)
+- **Evaluation**: Reconstruct full 100% field (all 1024 pixels for 32×32)
 
 **Expected Results**:
 - Training time: ~5-10 minutes on CPU
-- Final PSNR: 35-40 dB on simple dataset
+- Final PSNR: 35-40 dB on simple dataset (evaluated on full field)
 - Checkpoints saved to `baselines/checkpoints/`
 
 ### 3. Evaluate and Compare
@@ -274,10 +280,12 @@ if __name__ == '__main__':
 ### Sparsity Levels
 Test reconstruction quality vs observation density:
 ```bash
-for sparsity in 0.05 0.1 0.2 0.3 0.5; do
-    python train_baseline_mamba.py --sparsity $sparsity
+for sparsity in 0.02 0.05 0.1 0.15 0.2; do
+    python train_baseline_mamba.py --train_sparsity $sparsity --test_sparsity $sparsity
 done
 ```
+
+**Note**: Both train and test use the same sparsity level but are disjoint sets
 
 ### Architecture Variations
 - **Depth**: 2, 4, 6, 8 layers
@@ -300,7 +308,14 @@ from synthetic_experiments.datasets import SinusoidalDataset
 
 dataset = SinusoidalDataset(resolution=32, num_samples=100, complexity='interference')
 dataset.visualize_samples(num_samples=6, save_path='samples.png')
-dataset.visualize_sparse_vs_full(sample_idx=0, sparsity=0.2, save_path='sparse.png')
+
+# Visualize train/test split
+train_coords, train_values, test_coords, test_values, full = dataset.get_train_test_split(
+    train_sparsity=0.05, test_sparsity=0.05
+)
+# train_coords: 5% pixels for training
+# test_coords: different 5% pixels for testing (disjoint)
+# full: complete 100% ground truth
 ```
 
 ### Reconstruction Comparison
@@ -331,7 +346,8 @@ visualize_reconstruction(
 
 ### 3. Controlled Comparison
 - Keep all hyperparameters identical except the method
-- Same datasets, same sparsity, same evaluation
+- Same datasets, same 5%+5% disjoint sampling strategy
+- Same evaluation on full 100% field
 - Multiple random seeds for statistical significance
 
 ### 4. Debug with Visualizations
@@ -343,6 +359,40 @@ visualize_reconstruction(
 - Prove method works on synthetic first
 - Then apply to real CIFAR-10 data
 - Synthetic → Real transfer validation
+
+---
+
+## 🎯 Sampling Strategy
+
+### 5%+5% Disjoint Sampling
+
+The synthetic experiments use a **disjoint train/test sampling strategy** to test true generalization:
+
+**Training Phase**:
+1. Sample random 5% of pixels as **training observations** (e.g., 51 pixels for 32×32)
+2. Sample different random 5% as **test observations** (51 different pixels, disjoint from train)
+3. Model learns to predict test pixels given train pixels
+4. Loss computed only on test pixels (not full field)
+
+**Evaluation Phase**:
+- Use same 5% training observations as input
+- Reconstruct **full 100% field** (all 1024 pixels for 32×32)
+- Compute metrics (PSNR, MSE, etc.) on complete reconstruction vs ground truth
+
+**Why This Strategy?**:
+- **True Generalization**: Model never sees test pixels during training
+- **Realistic**: Mimics real-world sparse observation scenarios
+- **Challenging**: 5% is very sparse (vs 20% in many papers)
+- **Fair Comparison**: Same disjoint sets for all methods
+
+**Comparison to Alternatives**:
+```
+OLD (many papers):  Train on 20% → Reconstruct full 100%
+                    (easier, more observations)
+
+NEW (this work):    Train on 5% → Predict different 5% → Evaluate on 100%
+                    (harder, tests generalization)
+```
 
 ---
 
@@ -398,11 +448,18 @@ To add a new method:
 # Generate datasets
 python datasets/sinusoidal_generator.py
 
-# Train baseline
-python baselines/train_baseline_mamba.py --complexity simple --epochs 100
+# Train baseline with 5%+5% sampling
+python baselines/train_baseline_mamba.py \
+    --complexity simple \
+    --epochs 100 \
+    --train_sparsity 0.05 \
+    --test_sparsity 0.05
 
-# Compare methods
-python evaluation/compare_methods.py --complexities simple radial composite
+# Compare methods (evaluates on full 100% field)
+python evaluation/compare_methods.py \
+    --complexities simple radial composite \
+    --train_sparsity 0.05 \
+    --test_sparsity 0.05
 
 # Visualize specific method
 python evaluation/visualize.py --method baseline --complexity interference

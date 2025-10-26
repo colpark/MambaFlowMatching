@@ -78,27 +78,32 @@ class MetricsCalculator:
         return error
 
 
-def evaluate_model(model, dataset, sparsity=0.2, num_samples=100, device='cpu'):
+def evaluate_model(model, dataset, train_sparsity=0.05, test_sparsity=0.05, num_samples=100, device='cpu'):
     """
     Evaluate a model on dataset
+
+    Uses 5% train observations to reconstruct full 100% field
 
     Returns metrics dictionary
     """
     model.eval()
     model = model.to(device)
 
-    # Get sparse observations
-    coords_sparse, values_sparse, full_data = dataset.get_sparse_observations(
-        sparsity=sparsity,
+    # Get train/test split (5%+5% disjoint)
+    train_coords, train_values, test_coords, test_values, full_data = dataset.get_train_test_split(
+        train_sparsity=train_sparsity,
+        test_sparsity=test_sparsity,
         strategy='random'
     )
 
     # Limit to num_samples
-    coords_sparse = coords_sparse[:num_samples]
-    values_sparse = values_sparse[:num_samples]
+    train_coords = train_coords[:num_samples]
+    train_values = train_values[:num_samples]
+    test_coords = test_coords[:num_samples]
+    test_values = test_values[:num_samples]
     full_data = full_data[:num_samples]
 
-    # Create query coordinates
+    # Create query coordinates for FULL field (100% reconstruction)
     H, W = dataset.resolution, dataset.resolution
     y_grid, x_grid = torch.meshgrid(
         torch.linspace(-1, 1, H),
@@ -122,21 +127,23 @@ def evaluate_model(model, dataset, sparsity=0.2, num_samples=100, device='cpu'):
 
     with torch.no_grad():
         for i in tqdm(range(num_samples), desc="Evaluating"):
-            coords_batch = coords_sparse[i:i+1].to(device)
-            values_batch = values_sparse[i:i+1].to(device)
+            # Use 5% train observations as input
+            train_coords_batch = train_coords[i:i+1].to(device)
+            train_values_batch = train_values[i:i+1].to(device)
+            # Reconstruct FULL 100% field
             query_batch = query_coords[i:i+1].to(device)
             target_batch = full_data[i:i+1].to(device)
 
-            # Sample (assuming model has sample method)
+            # Sample using Heun ODE solver
             try:
                 # Try Heun sampling
                 from synthetic_experiments.baselines.train_baseline_mamba import sample_heun
-                pred = sample_heun(model, coords_batch, values_batch, query_batch,
+                pred = sample_heun(model, train_coords_batch, train_values_batch, query_batch,
                                  num_steps=50, device=device)
             except:
                 # Direct forward pass (for non-diffusion models)
                 t = torch.ones(1, device=device)
-                pred = model(coords_batch, values_batch, query_batch, t)
+                pred = model(train_coords_batch, train_values_batch, query_batch, t)
 
             # Reshape
             pred = pred.reshape(1, 1, H, W)
@@ -168,7 +175,8 @@ def compare_methods_on_complexity(
     complexity: str,
     method_checkpoints: Dict[str, str],
     num_samples: int = 100,
-    sparsity: float = 0.2,
+    train_sparsity: float = 0.05,
+    test_sparsity: float = 0.05,
     device: str = 'cpu',
     save_dir: str = 'results'
 ):
@@ -179,7 +187,8 @@ def compare_methods_on_complexity(
         complexity: Dataset complexity level
         method_checkpoints: Dict mapping method names to checkpoint paths
         num_samples: Number of test samples
-        sparsity: Observation sparsity
+        train_sparsity: Training observation sparsity (default: 5%)
+        test_sparsity: Testing observation sparsity (default: 5%, disjoint from train)
         device: Compute device
         save_dir: Results directory
     """
@@ -216,8 +225,11 @@ def compare_methods_on_complexity(
 
         # Evaluate
         method_results = evaluate_model(
-            model, dataset, sparsity=sparsity,
-            num_samples=num_samples, device=device
+            model, dataset,
+            train_sparsity=train_sparsity,
+            test_sparsity=test_sparsity,
+            num_samples=num_samples,
+            device=device
         )
 
         results[method_name] = method_results
@@ -346,7 +358,10 @@ def main():
                        default='synthetic_experiments/methods',
                        help='Directory containing method checkpoints')
     parser.add_argument('--num_samples', type=int, default=100)
-    parser.add_argument('--sparsity', type=float, default=0.2)
+    parser.add_argument('--train_sparsity', type=float, default=0.05,
+                       help='Training observation sparsity (default: 5%)')
+    parser.add_argument('--test_sparsity', type=float, default=0.05,
+                       help='Testing observation sparsity (default: 5%)')
     parser.add_argument('--device', type=str, default='auto')
     parser.add_argument('--save_dir', type=str,
                        default='synthetic_experiments/results')
@@ -373,7 +388,8 @@ def main():
             complexity=complexity,
             method_checkpoints=method_checkpoints,
             num_samples=args.num_samples,
-            sparsity=args.sparsity,
+            train_sparsity=args.train_sparsity,
+            test_sparsity=args.test_sparsity,
             device=device,
             save_dir=args.save_dir
         )
