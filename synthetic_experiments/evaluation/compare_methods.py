@@ -136,8 +136,12 @@ def evaluate_model(model, dataset, train_sparsity=0.05, test_sparsity=0.05, num_
 
             # Sample using Heun ODE solver
             try:
-                # Try Heun sampling
-                from synthetic_experiments.baselines.train_mamba_v1 import sample_heun
+                # Try Heun sampling from V1 or V2
+                try:
+                    from synthetic_experiments.baselines.train_mamba_v1 import sample_heun
+                except ImportError:
+                    from synthetic_experiments.baselines.train_transformer_v2 import sample_heun
+
                 pred = sample_heun(model, train_coords_batch, train_values_batch, query_batch,
                                  num_steps=50, device=device)
             except:
@@ -215,12 +219,24 @@ def compare_methods_on_complexity(
             print(f"   ⚠️  Checkpoint not found, skipping...")
             continue
 
-        # Load model (assuming V1 MAMBA architecture)
-        # TODO: Extend for other architectures
-        from synthetic_experiments.baselines.train_mamba_v1 import BaselineMAMBAFlow
-
-        model = BaselineMAMBAFlow(d_model=128, num_layers=4)
+        # Load model - detect architecture from checkpoint
         checkpoint = torch.load(checkpoint_path, map_location=device)
+
+        # Detect architecture from checkpoint keys
+        if 'mamba_blocks.0.mixer.A_log' in checkpoint['model_state_dict']:
+            # V1 MAMBA architecture
+            from synthetic_experiments.baselines.train_mamba_v1 import BaselineMAMBAFlow
+            model = BaselineMAMBAFlow(d_model=128, num_layers=4)
+            print(f"   Architecture: MAMBA V1")
+        elif 'transformer_layers.0.self_attn.in_proj_weight' in checkpoint['model_state_dict']:
+            # V2 Transformer architecture
+            from synthetic_experiments.baselines.train_transformer_v2 import TransformerFlow
+            model = TransformerFlow(d_model=128, num_layers=4, num_heads=8, dim_feedforward=512)
+            print(f"   Architecture: Transformer V2")
+        else:
+            print(f"   ⚠️  Unknown architecture, skipping...")
+            continue
+
         model.load_state_dict(checkpoint['model_state_dict'])
 
         # Evaluate
@@ -376,7 +392,8 @@ def main():
 
     # Find method checkpoints
     method_checkpoints = {
-        'Baseline': 'synthetic_experiments/baselines/checkpoints/best_model.pth',
+        'MAMBA_V1': 'synthetic_experiments/baselines/checkpoints/best_model.pth',
+        'Transformer_V2': 'synthetic_experiments/baselines/checkpoints_v2/best_model.pth',
         # Add more methods here as they're implemented
     }
 
