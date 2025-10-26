@@ -270,16 +270,131 @@ class SinusoidalDataset:
 
         return torch.cat(data, dim=0)
 
+    def get_train_test_split(
+        self,
+        train_sparsity: float = 0.05,
+        test_sparsity: float = 0.05,
+        strategy: str = 'random'
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """
+        Split observations into training and testing sets (disjoint)
+
+        Args:
+            train_sparsity: Fraction of pixels for training (0.05 = 5%)
+            test_sparsity: Fraction of pixels for testing (0.05 = 5%)
+            strategy: 'random', 'uniform', 'edge-aware'
+
+        Returns:
+            train_coords: (N, num_train, 2) training coordinates
+            train_values: (N, num_train, 1) training observed values
+            test_coords: (N, num_test, 2) testing coordinates
+            test_values: (N, num_test, 1) testing observed values
+            full_images: (N, 1, H, W) complete ground truth
+        """
+        N, C, H, W = self.data.shape
+        num_train = int(H * W * train_sparsity)
+        num_test = int(H * W * test_sparsity)
+
+        train_coords_list = []
+        train_values_list = []
+        test_coords_list = []
+        test_values_list = []
+
+        for i in range(N):
+            if strategy == 'random':
+                # Random sampling with disjoint train/test sets
+                all_indices = torch.randperm(H * W)
+                train_indices = all_indices[:num_train]
+                test_indices = all_indices[num_train:num_train + num_test]
+
+            elif strategy == 'uniform':
+                # Uniform grid sampling (still disjoint)
+                stride = int(np.sqrt(1 / (train_sparsity + test_sparsity)))
+                all_y = torch.arange(0, H, stride).repeat_interleave(len(torch.arange(0, W, stride)))
+                all_x = torch.arange(0, W, stride).repeat(len(torch.arange(0, H, stride)))
+
+                # Split into train/test
+                perm = torch.randperm(len(all_y))
+                train_indices_subset = perm[:min(num_train, len(perm))]
+                test_indices_subset = perm[num_train:min(num_train + num_test, len(perm))]
+
+                train_y_coords = all_y[train_indices_subset]
+                train_x_coords = all_x[train_indices_subset]
+                test_y_coords = all_y[test_indices_subset]
+                test_x_coords = all_x[test_indices_subset]
+
+                train_indices = train_y_coords * W + train_x_coords
+                test_indices = test_y_coords * W + test_x_coords
+
+            elif strategy == 'edge_aware':
+                # Sample more from high-gradient regions
+                img = self.data[i, 0].numpy()
+                grad_x = np.abs(np.gradient(img, axis=0))
+                grad_y = np.abs(np.gradient(img, axis=1))
+                gradient_mag = grad_x + grad_y
+
+                # Normalize to probabilities
+                probs = gradient_mag.flatten()
+                probs = probs / probs.sum()
+
+                # Sample based on gradient magnitude (without replacement)
+                all_indices = np.random.choice(
+                    H * W,
+                    size=num_train + num_test,
+                    replace=False,
+                    p=probs
+                )
+                train_indices = torch.from_numpy(all_indices[:num_train])
+                test_indices = torch.from_numpy(all_indices[num_train:num_train + num_test])
+
+            else:
+                raise ValueError(f"Unknown strategy: {strategy}")
+
+            # Training set
+            train_y_coords = train_indices // W
+            train_x_coords = train_indices % W
+
+            # Normalize coordinates to [-1, 1]
+            train_coords = torch.stack([
+                2 * train_x_coords.float() / (W - 1) - 1,
+                2 * train_y_coords.float() / (H - 1) - 1
+            ], dim=-1)  # (num_train, 2)
+
+            train_values = self.data[i, 0, train_y_coords, train_x_coords].unsqueeze(-1)  # (num_train, 1)
+
+            # Testing set
+            test_y_coords = test_indices // W
+            test_x_coords = test_indices % W
+
+            test_coords = torch.stack([
+                2 * test_x_coords.float() / (W - 1) - 1,
+                2 * test_y_coords.float() / (H - 1) - 1
+            ], dim=-1)  # (num_test, 2)
+
+            test_values = self.data[i, 0, test_y_coords, test_x_coords].unsqueeze(-1)  # (num_test, 1)
+
+            train_coords_list.append(train_coords)
+            train_values_list.append(train_values)
+            test_coords_list.append(test_coords)
+            test_values_list.append(test_values)
+
+        train_coords = torch.stack(train_coords_list, dim=0)  # (N, num_train, 2)
+        train_values = torch.stack(train_values_list, dim=0)  # (N, num_train, 1)
+        test_coords = torch.stack(test_coords_list, dim=0)    # (N, num_test, 2)
+        test_values = torch.stack(test_values_list, dim=0)    # (N, num_test, 1)
+
+        return train_coords, train_values, test_coords, test_values, self.data
+
     def get_sparse_observations(
         self,
-        sparsity: float = 0.2,
+        sparsity: float = 0.05,
         strategy: str = 'random'
     ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """
-        Sample sparse observations from the dataset
+        Sample sparse observations from the dataset (legacy method)
 
         Args:
-            sparsity: Fraction of pixels to observe (0.2 = 20%)
+            sparsity: Fraction of pixels to observe (0.05 = 5%)
             strategy: 'random', 'uniform', 'edge-aware'
 
         Returns:

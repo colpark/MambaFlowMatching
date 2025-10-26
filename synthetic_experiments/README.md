@@ -90,16 +90,29 @@ This creates:
 - 500 samples per variant
 - Saved to `datasets/generated/`
 
-### 2. Train Baseline
+### 2. Train Baseline V1
 
+**Option A: Using bash script (recommended)**
 ```bash
 cd synthetic_experiments/baselines
-python train_baseline_mamba.py \
+./run_mamba_v1_training.sh
+```
+
+**Option B: Direct Python execution**
+```bash
+cd synthetic_experiments/baselines
+python train_mamba_v1.py \
     --complexity simple \
     --epochs 100 \
     --batch_size 32 \
     --train_sparsity 0.05 \
     --test_sparsity 0.05
+```
+
+**Environment Variables (for bash script)**:
+```bash
+COMPLEXITY=radial EPOCHS=200 ./run_mamba_v1_training.sh
+TRAIN_SPARSITY=0.1 TEST_SPARSITY=0.1 ./run_mamba_v1_training.sh
 ```
 
 **Training Strategy**:
@@ -111,6 +124,7 @@ python train_baseline_mamba.py \
 - Training time: ~5-10 minutes on CPU
 - Final PSNR: 35-40 dB on simple dataset (evaluated on full field)
 - Checkpoints saved to `baselines/checkpoints/`
+- Logs saved to `baselines/logs/` (when using bash script)
 
 ### 3. Evaluate and Compare
 
@@ -142,8 +156,10 @@ synthetic_experiments/
 │   └── __init__.py
 │
 ├── baselines/                        # Baseline implementations
-│   ├── train_baseline_mamba.py       # V1 baseline on synthetic
+│   ├── train_mamba_v1.py            # V1 baseline on synthetic
+│   ├── run_mamba_v1_training.sh     # V1 bash training script
 │   ├── checkpoints/                  # Trained baselines
+│   ├── logs/                        # Training logs
 │   └── __init__.py
 │
 ├── methods/                          # Improvement methods
@@ -280,8 +296,14 @@ if __name__ == '__main__':
 ### Sparsity Levels
 Test reconstruction quality vs observation density:
 ```bash
+# Using bash script
 for sparsity in 0.02 0.05 0.1 0.15 0.2; do
-    python train_baseline_mamba.py --train_sparsity $sparsity --test_sparsity $sparsity
+    TRAIN_SPARSITY=$sparsity TEST_SPARSITY=$sparsity ./run_mamba_v1_training.sh
+done
+
+# Or direct Python
+for sparsity in 0.02 0.05 0.1 0.15 0.2; do
+    python train_mamba_v1.py --train_sparsity $sparsity --test_sparsity $sparsity
 done
 ```
 
@@ -448,8 +470,11 @@ To add a new method:
 # Generate datasets
 python datasets/sinusoidal_generator.py
 
-# Train baseline with 5%+5% sampling
-python baselines/train_baseline_mamba.py \
+# Train baseline V1 with 5%+5% sampling (bash script)
+cd baselines && ./run_mamba_v1_training.sh
+
+# Or direct Python execution
+python baselines/train_mamba_v1.py \
     --complexity simple \
     --epochs 100 \
     --train_sparsity 0.05 \
@@ -463,6 +488,9 @@ python evaluation/compare_methods.py \
 
 # Visualize specific method
 python evaluation/visualize.py --method baseline --complexity interference
+
+# Monitor training (when using bash script)
+tail -f baselines/logs/training_simple_*.log
 ```
 
 ---

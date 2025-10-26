@@ -137,7 +137,7 @@ def evaluate_model(model, dataset, train_sparsity=0.05, test_sparsity=0.05, num_
             # Sample using Heun ODE solver
             try:
                 # Try Heun sampling
-                from synthetic_experiments.baselines.train_baseline_mamba import sample_heun
+                from synthetic_experiments.baselines.train_mamba_v1 import sample_heun
                 pred = sample_heun(model, train_coords_batch, train_values_batch, query_batch,
                                  num_steps=50, device=device)
             except:
@@ -215,9 +215,9 @@ def compare_methods_on_complexity(
             print(f"   ⚠️  Checkpoint not found, skipping...")
             continue
 
-        # Load model (assuming BaselineMAMBAFlow architecture)
+        # Load model (assuming V1 MAMBA architecture)
         # TODO: Extend for other architectures
-        from synthetic_experiments.baselines.train_baseline_mamba import BaselineMAMBAFlow
+        from synthetic_experiments.baselines.train_mamba_v1 import BaselineMAMBAFlow
 
         model = BaselineMAMBAFlow(d_model=128, num_layers=4)
         checkpoint = torch.load(checkpoint_path, map_location=device)
