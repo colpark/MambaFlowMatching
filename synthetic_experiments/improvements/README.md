@@ -2,6 +2,20 @@
 
 Automated framework for testing 100 combinations of 10 improvement techniques across 4 GPUs.
 
+## ⚠️ CRITICAL FIXES APPLIED
+
+**Date**: 2025-10-26
+
+Three critical fixes have been applied to address the ~6 dB PSNR issue:
+
+1. ✅ **Random query point sampling** - Train on diverse positions (not fixed test set)
+2. ✅ **Output clamping** - Prevent ODE divergence outside [0, 1]
+3. ✅ **Learnable Fourier features** - Optimize coordinate encoding
+
+**Expected baseline improvement**: From 6 dB → 28-35 dB PSNR
+
+**See**: `FIXES_APPLIED.md` for detailed explanation and verification steps
+
 ---
 
 ## 🎯 Quick Start

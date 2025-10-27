@@ -141,9 +141,10 @@ class ImprovedTransformerFlow(nn.Module):
             )
             coord_feat_dim = self.coord_encoding.output_dim
         else:
-            # Standard Fourier features
+            # Standard Fourier features (now learnable!)
+            # CRITICAL FIX: Make Fourier frequencies learnable parameters
             self.num_frequencies = num_frequencies
-            self.register_buffer('B', torch.randn(2, num_frequencies) * 10.0)
+            self.B = nn.Parameter(torch.randn(2, num_frequencies) * 10.0)
             coord_feat_dim = 2 + 2 * num_frequencies
 
         # Time embedding
@@ -184,6 +185,8 @@ class ImprovedTransformerFlow(nn.Module):
         ])
 
         # Output projection
+        # NOTE: No sigmoid here - model predicts velocity v_t = x1 - x0 (can be negative)
+        # Bounding happens during ODE integration via data normalization
         self.output_proj = nn.Linear(d_model, 1)
 
     def encode_coordinates(self, coords):
@@ -348,5 +351,9 @@ def sample_heun(model, sparse_coords, sparse_values, query_coords, num_steps=50,
 
         # Heun's method: average of two slopes
         z_t = z_t + 0.5 * (v1 + v2) * dt
+
+    # CRITICAL FIX: Clamp final outputs to valid [0, 1] range
+    # Prevents ODE from diverging outside data distribution
+    z_t = torch.clamp(z_t, 0.0, 1.0)
 
     return z_t

@@ -111,14 +111,32 @@ def train_epoch(
     # Get schedule type
     schedule = 'cosine' if use_noise_schedule else 'linear'
 
+    # CRITICAL FIX: Create full coordinate grid for random query sampling
+    H, W = dataset.resolution, dataset.resolution
+    y_grid, x_grid = torch.meshgrid(
+        torch.linspace(-1, 1, H),
+        torch.linspace(-1, 1, W),
+        indexing='ij'
+    )
+    all_coords = torch.stack([x_grid.flatten(), y_grid.flatten()], dim=-1).to(device)
+    N_total = H * W  # 1024 for 32x32
+
     for i in range(0, num_samples, batch_size):
         # Get batch
         train_coords_batch = train_coords[i:i+batch_size].to(device)
         train_values_batch = train_values[i:i+batch_size].to(device)
-        test_coords_batch = test_coords[i:i+batch_size].to(device)
-        test_values_batch = test_values[i:i+batch_size].to(device)
+        full_data_batch = full_data[i:i+batch_size].to(device)
 
         actual_batch_size = len(train_coords_batch)
+
+        # CRITICAL FIX: Sample random query points from full field
+        # Instead of fixed 51 test pixels, sample 200 random pixels each iteration
+        num_query = 200  # More than 51, less than 1024 for efficiency
+        query_indices = torch.randperm(N_total, device=device)[:num_query]
+
+        # Get query coordinates and values
+        test_coords_batch = all_coords[query_indices].unsqueeze(0).expand(actual_batch_size, -1, -1)
+        test_values_batch = full_data_batch.view(actual_batch_size, N_total, 1)[:, query_indices, :]
 
         # Sample timestep
         t = torch.rand(actual_batch_size, device=device)
